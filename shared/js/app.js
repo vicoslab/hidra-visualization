@@ -1,6 +1,10 @@
 var app = {
     critical: {red: 350, orange: 330, yellow: 300},
-    maxRuns: 30
+    maxRuns: 30,
+    apiHosts: [
+        'https://gea.arso.gov.si',
+        'https://meteo.arso.gov.si'
+    ]
 };
 
 function showError() {
@@ -9,54 +13,93 @@ function showError() {
     $('#error-placeholder').show();
 }
 
-// Fetch dates from server
-function getDates() {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/listHIDRAjson')
+function fetchJson(url) {
+    return fetch(url)
         .then(response => {
             if (!response.ok) {
-                showError();
+                throw new Error('Failed to fetch ' + url);
             }
+
             return response.json();
-        })
+        });
+}
+
+function fetchJsonWithFallback(urls) {
+    let lastError;
+
+    return urls.reduce((promise, url) => {
+        return promise.catch(() => fetchJson(url).catch(error => {
+            lastError = error;
+            return Promise.reject(error);
+        }));
+    }, Promise.reject())
+        .catch(() => Promise.reject(lastError));
+}
+
+function buildApiUrls(path) {
+    return app.apiHosts.map(host => host + path);
+}
+
+function buildFallbackDates() {
+    let dates = [];
+    let referenceDate = moment().startOf('day');
+
+    for (let i = app.maxRuns - 1; i >= 0; i--) {
+        dates.push(referenceDate.clone().subtract(i, 'days').format('YYYYMMDD00'));
+    }
+
+    return dates;
+}
+
+function getDataField(data, keys, fallback = []) {
+    if (!data) {
+        return fallback;
+    }
+
+    for (const key of keys) {
+        if (data[key] !== undefined) {
+            return data[key];
+        }
+    }
+
+    return fallback;
+}
+
+function getDateList(data) {
+    if (Array.isArray(data)) {
+        return data;
+    }
+
+    return getDataField(data, ['Dates', 'dates']);
+}
+
+// Fetch dates from server
+function getDates() {
+    return fetchJsonWithFallback(buildApiUrls('/vg2020-dev/hidra/listHIDRAjson'))
         .then(data => {
             // Select last N runs
-            let dates = data.Dates.slice(-app.maxRuns);
+            let dates = getDateList(data).slice(-app.maxRuns);
+
+            if (dates.length === 0) {
+                return Promise.resolve(buildFallbackDates());
+            }
+
             return Promise.resolve(dates);
         })
-        .catch(error => {
-            showError();
-        });
+        .catch(() => Promise.resolve(buildFallbackDates()));
 }
 
 // Fetch a single run from server
 function getRun(date) {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/showHIDRAjson?date=' + date)
-        .then(response => {
-            if (!response.ok) {
-                showError();
-            }
-            return response.json();
-        })
-        .catch(error => {
-            showError();
-        });
+    return fetchJsonWithFallback(buildApiUrls('/vg2020-dev/hidra/showHIDRAjson?date=' + date));
 }
 
 function getSSH() {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/showKPjson')
-        .then(response => {
-            if (!response.ok) {
-                showError();
-            }
-            return response.json();
-        })
-        .catch(error => {
-            showError();
-        });
+    return fetchJsonWithFallback(buildApiUrls('/vg2020-dev/hidra/showKPjson'));
 }
 
 function parseDate(date) {
-    return moment(date, "DD.MM.YYYY hh:mm").format();
+    return moment(date, [moment.ISO_8601, "DD.MM.YYYY HH:mm", "DD.MM.YYYY hh:mm", "YYYYMMDDHH"]).format();
 }
 
 function average(vals) {
@@ -108,10 +151,14 @@ function fetchData() {
 
     let runs = getDates()
         .then(dates => {
-            dates.sort();
+            dates = [...new Set(dates)].sort();
             app.dates = dates;
-            let promises = dates.map(date => getRun(date));
-            return Promise.all(promises);
+            let promises = dates.map(date => getRun(date)
+                .then(run => ({date: date, run: run}))
+                .catch(() => null));
+
+            return Promise.all(promises)
+                .then(results => results.filter(result => result !== null));
         });
 
     let ssh = getSSH();
@@ -121,22 +168,31 @@ function fetchData() {
             let runs_data = data[0];
             let ssh_data = data[1];
 
-            let ssh = ssh_data.Values;
-            let ssh_dates = ssh_data.Dates.map(val => parseDate(val));
+            if (runs_data.length === 0) {
+                return Promise.reject(new Error('No forecast runs available'));
+            }
+
+            let ssh = getDataField(ssh_data, ['Values', 'values']);
+            let ssh_dates = getDateList(ssh_data).map(val => parseDate(val));
 
             let predictions = [];
-            for (d of runs_data) {
+            for ({date, run: d} of runs_data) {
+                let predictionDates = getDateList(d);
+                let hidra = getDataField(d, ['Hidra', 'hidra']);
 
                 let ys = [];
                 let stddevs = [];
 
-                for (let i = 0; i < 72; i++) {
+                let predictionLength = predictionDates.length;
+
+                for (let i = 0; i < predictionLength; i++) {
                     let y_i = [];
                     let std_i = [];
 
-                    for (let j = 0; j < d.Hidra.length; j++) {
-                        y_i.push(d.Hidra[j].values[i]);
-                        std_i.push(d.Hidra[j].std[i]);
+                    for (let j = 0; j < hidra.length; j++) {
+                        y_i.push(hidra[j].values[i]);
+                        let std = hidra[j].std || hidra[j].stds || [];
+                        std_i.push(std[i] || 0);
                     }
 
                     ys.push(average(y_i));
@@ -146,8 +202,8 @@ function fetchData() {
                 // console.log(stddevs);
 
                 let pred = {
-                    date: d.ForecastDate,
-                    x: d.Dates.map(val => parseDate(val)),
+                    date: getDataField(d, ['ForecastDate', 'forecastDate'], date),
+                    x: predictionDates.map(val => parseDate(val)),
                     y: ys,
                     stddev: stddevs,
                 };
@@ -165,6 +221,10 @@ function fetchData() {
             };
 
             return Promise.resolve();
+        })
+        .catch(error => {
+            showError();
+            return Promise.reject(error);
         });
 }
 

@@ -169,7 +169,7 @@ function fetchData() {
             let ssh_data = data[1];
 
             if (runs_data.length === 0) {
-                return Promise.reject(new Error('No forecast runs available'));
+                return Promise.reject();
             }
 
             let ssh = getDataField(ssh_data, ['Values', 'values']);
@@ -192,7 +192,7 @@ function fetchData() {
                     for (let j = 0; j < hidra.length; j++) {
                         y_i.push(hidra[j].values[i]);
                         let std = hidra[j].std || hidra[j].stds || [];
-                        std_i.push(std[i] || 0);
+                        std_i.push(i < std.length ? std[i] : 0);
                     }
 
                     ys.push(average(y_i));

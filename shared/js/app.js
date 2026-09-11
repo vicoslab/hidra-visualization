@@ -216,7 +216,7 @@ function fetchData() {
                 // console.log(stddevs);
 
                 let pred = {
-                    date: getDataField(d, ['ForecastDate', 'forecastDate'], date),
+                    date: getDataField(d, ['ForecastDate', 'forecastDate'], parseDate(date)),
                     x: predictionDates.map(val => parseDate(val)),
                     y: ys,
                     stddev: stddevs,

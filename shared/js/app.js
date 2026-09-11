@@ -204,19 +204,23 @@ function fetchData() {
 
                     for (let j = 0; j < hidra.length; j++) {
                         let values = getValueList(hidra[j]);
+                        if (i >= values.length) {
+                            continue;
+                        }
+
                         y_i.push(values[i]);
                         let std = getStdList(hidra[j]);
                         std_i.push(i < std.length ? std[i] : 0);
                     }
 
-                    ys.push(average(y_i));
-                    stddevs.push(std_average(y_i, std_i));
+                    ys.push(y_i.length > 0 ? average(y_i) : null);
+                    stddevs.push(y_i.length > 0 ? std_average(y_i, std_i) : 0);
                 }
                 // console.log(ys);
                 // console.log(stddevs);
 
                 let pred = {
-                    date: getDataField(d, ['ForecastDate', 'forecastDate'], parseDate(date)),
+                    date: parseDate(getDataField(d, ['ForecastDate', 'forecastDate'], date)),
                     x: predictionDates.map(val => parseDate(val)),
                     y: ys,
                     stddev: stddevs,

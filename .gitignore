@@ -1,2 +1,10 @@
 .idea
 
+/arso.token
+/.env
+/.env.*
+/_site*/
+/.hydra-stage-*/
+__pycache__/
+*.pyc
+

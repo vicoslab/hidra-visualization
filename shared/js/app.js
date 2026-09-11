@@ -4,59 +4,55 @@ var app = {
 };
 
 function showError() {
-    // hide plot-placeholder div
-    $('#plot-placeholder').hide();
-    $('#error-placeholder').show();
+    const placeholder = document.getElementById('plot-placeholder');
+    if (placeholder) placeholder.style.display = 'none';
+    document.getElementById('error-placeholder').style.display = 'block';
 }
 
-// Fetch dates from server
+// Data is published with this site. No API credentials or ARSO calls in browsers.
+function getJSON(path) {
+    return fetch('../shared/data/' + path, {cache: 'no-store', credentials: 'omit'})
+        .then(response => {
+            if (!response.ok) throw new Error('Data request failed');
+            return response.json();
+        });
+}
+
+function updateStaleWarning() {
+    const data = app.manifest || {};
+    const limits = {GeneratedAt: 3, LatestForecastAt: 36, LatestGaugeAt: 3};
+    const stale = Object.keys(limits).some(key => {
+        const value = Date.parse(data[key]);
+        return !Number.isFinite(value) || Date.now() - value > limits[key] * 3600000;
+    });
+    const warning = document.getElementById('stale-warning');
+    warning.textContent = app.localization.localize('stale', app.lang);
+    warning.hidden = !stale;
+}
+
 function getDates() {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/listHIDRAjson')
-        .then(response => {
-            if (!response.ok) {
-                showError();
-            }
-            return response.json();
-        })
-        .then(data => {
-            // Select last N runs
-            let dates = data.Dates.slice(-app.maxRuns);
-            return Promise.resolve(dates);
-        })
-        .catch(error => {
-            showError();
-        });
+    return getJSON('dates.json').then(data => {
+        if (!Array.isArray(data.Dates) || !data.Dates.length ||
+            data.Dates.some(date => typeof date !== 'string' || !/^[0-9]{10}$/.test(date))) {
+            throw new Error('Invalid run manifest');
+        }
+        app.manifest = data;
+        updateStaleWarning();
+        return data.Dates.slice().sort().slice(-app.maxRuns);
+    });
 }
 
-// Fetch a single run from server
 function getRun(date) {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/showHIDRAjson?date=' + date)
-        .then(response => {
-            if (!response.ok) {
-                showError();
-            }
-            return response.json();
-        })
-        .catch(error => {
-            showError();
-        });
+    if (!/^[0-9]{10}$/.test(date)) return Promise.reject(new Error('Invalid run ID'));
+    return getJSON('runs/Hidra_' + date + '.json');
 }
 
 function getSSH() {
-    return fetch('https://gea.arso.gov.si/vg2020-dev/hidra/showKPjson')
-        .then(response => {
-            if (!response.ok) {
-                showError();
-            }
-            return response.json();
-        })
-        .catch(error => {
-            showError();
-        });
+    return getJSON('mareografKP_vodostaj.json');
 }
 
 function parseDate(date) {
-    return moment(date, "DD.MM.YYYY hh:mm").format();
+    return moment(date, "DD.MM.YYYY HH:mm", true).format('YYYY-MM-DDTHH:mm:ss');
 }
 
 function average(vals) {
@@ -125,7 +121,7 @@ function fetchData() {
             let ssh_dates = ssh_data.Dates.map(val => parseDate(val));
 
             let predictions = [];
-            for (d of runs_data) {
+            for (const d of runs_data) {
 
                 let ys = [];
                 let stddevs = [];
@@ -340,15 +336,14 @@ function initPlot() {
         }]
     };
 
-    Plotly.newPlot(app.plot, {
+    return Plotly.newPlot(app.plot, {
         data: data,
         layout: layout,
         config: {responsive: true, locale: app.lang}
     }).then(() => {
         app.placeholder.parentNode.removeChild(app.placeholder);
+        app.plot.on('plotly_sliderchange', selectDate);
     });
-
-    app.plot.on('plotly_sliderchange', selectDate);
 }
 
 // When ready, load data and display plot
@@ -359,6 +354,8 @@ window.onload = function () {
     app.placeholder = document.getElementById('plot-placeholder');
 
     // Populate date selection
-    fetchData()
-        .then(() => initPlot());
+    setInterval(updateStaleWarning, 60000);
+    return fetchData()
+        .then(() => initPlot())
+        .catch(() => showError());
 }

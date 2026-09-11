@@ -1,35 +1,56 @@
 # HIDRA Koper sea-level visualization
 
-English (`en/`) and Slovenian (`sl/`) static plots of ARSO HIDRA ensemble forecasts and Koper sea-level measurements.
+English (`en/`) and Slovenian (`sl/`) static plots of ARSO HIDRA forecasts and Koper sea-level measurements. The slider shows the latest 30 runs; the archive date selector opens any preserved historical run, with measurements loaded on demand. While viewing history the recent-run slider is hidden; **Return to latest forecast** restores it.
 
-## Activate GitHub Pages
+## Activate GitHub Pages and the durable archive
 
 After reviewing and pushing this change to the default **master** branch:
 
-1. Obtain an authorized ARSO Hydra subscription/key. In the GitHub repository, open **Settings → Secrets and variables → Actions → Secrets → New repository secret**. Set **`ARSO_HYDRA_API_KEY`** to the key.
-2. In **Settings → Secrets and variables → Actions → Variables → New repository variable**, set **`ARSO_HYDRA_BASE_URL`** to **`https://apis-g.arso.gov.si/hydra/`**. This HTTPS URL is also the safe default if the variable is unset. Never put the key in this variable or URL.
-3. In **Settings → Pages → Build and deployment → Source**, select **GitHub Actions**. Ensure the `github-pages` environment permits deployment from `master`.
-4. Open **Actions → Update Hydra and deploy Pages → Run workflow**, select **master**, and run it. Check that test, build, upload and deployment succeed; use the deployment URL shown there.
+1. Confirm your ARSO subscription permits **public redistribution and long-term retention** of derived forecasts and measurements. Retain ARSO attribution and the model references. An API key alone does not establish these rights.
+2. Set repository Actions secret **`ARSO_HYDRA_API_KEY`** to an authorized Hydra subscription key.
+3. Optionally set Actions variable **`ARSO_HYDRA_BASE_URL`** to `https://apis-g.arso.gov.si/hydra/` (the HTTPS default). Never put credentials in this variable or URL.
+4. In **Settings → Pages → Build and deployment → Source**, select **GitHub Actions**. Permit deployment from `master` in the `github-pages` environment. Repository/organization rules must allow the trusted build job's `GITHUB_TOKEN` to create/update **`hydra-data`**; no separate storage account, PAT, or external service is needed.
+5. Run **Update Hydra and deploy Pages** manually on `master`. The first successful run creates the data-only branch automatically, backfills every run available in ARSO's paginated listing, validates the complete site, persists the archive, then uploads and deploys Pages. Allow up to 60 minutes for backfill. A missing branch is bootstrapped only after a successful Git query explicitly reports no matching ref; authentication/network failures never trigger a reset.
 
-Pushes to `master`, manual runs on `master`, and hourly scheduling at **minute 17 UTC** update the site. Pull requests run offline tests only, without the API secret or deployment privileges. GitHub schedules can be delayed or dropped and are not a real-time guarantee; scheduled workflows in public repositories can be disabled after 60 days of inactivity. Re-enable them in Actions and run manually if necessary. Forks must configure their own authorized key and Pages settings.
+Pushes to `master`, manual runs on `master`, and an hourly schedule at **minute 17 UTC** update the site. Production updates are serialized. Pull requests run offline tests only, with no API secret or write/deploy privileges. GitHub schedules can be delayed/dropped and public-repository schedules may be disabled after 60 days of inactivity; re-enable and run manually when needed. Forks require their own authorized key and Pages configuration.
+
+## Archive architecture and growth
+
+**Application code stays on `master`; downloaded canonical data lives only on `hydra-data` and Pages.** This is not an Actions cache or an expiring artifact. Each data-branch commit stores compact monthly snapshots; unchanged files remain unchanged in Git. Normal pushes are fast-forward only, with no force push. A remote read-back verifies the pushed commit before Pages publication. Concurrent/unexpected remote changes fail closed; rerun rather than overwrite history.
+
+The data branch contains only:
+
+- `README.md`: source, representation, growth and redistribution notes.
+- `index.json`: schema `Version: 1`, sorted archive-ID `Dates`, and `GaugeMonths`.
+- `runs/YYYY/MM.json`: a map from source file IDs to `ForecastDate`, 72 hourly `Dates`, `Mean`, and `Std`.
+- `gauges/YYYY/MM.json`: merged measurement `Dates` and `Values`.
+
+This is a **visualization archive, not a raw-ensemble download archive**. The ensemble mean and mixture standard deviation are computed once from all available members, rounded to six decimals in cm. Mixture variance is `mean(member_std² + (member_mean - ensemble_mean)²)`, algebraically equivalent to the original frontend formula but avoiding cancellation. We do not retain the 50 raw member arrays or other upstream metadata.
+
+Initial backfill downloads every listed run. Later builds fetch only missing IDs plus the latest **two** upstream IDs (which can be mutable), and the current gauge snapshot. Previously archived runs absent from the upstream listing are **retained**, never deleted. Historical observations embedded in each forecast's `Koper: {Dates, values}` are merged by timestamp; existing archived observations take precedence over retrospective input windows, and the current gauge snapshot takes precedence over both. Measurements absent from newer snapshots are retained. This recovers observations actually available in the source; it cannot invent missing observations or recover runs ARSO removed before the initial backfill. Older corrections outside the latest two runs are not automatically refetched.
+
+The source file ID is **not necessarily the payload forecast issue time**. The selector labels the archive/source-file date and the selected view reports both the ID and actual issue time. The existing fixed **CET (UTC+1)** display convention is preserved; the source's actual timezone has not been independently established. Historical forecast windows can load measurement months across month/year boundaries. Gaps longer than two hours are broken in the plotted measurement line, not interpolated.
+
+Data and Git history grow over time. Builds stop before publication at **20 MiB per monthly/index JSON file**, **100,000 runs**, or **800 MiB total Pages site**, leaving headroom below the Pages 1 GB site limit. These are safety stops, not pruning policies; old data is never silently evicted. Monitor data-branch Git history separately (the site cap does not bound Git history). Before approaching limits, migrate storage deliberately rather than delete history. Deleting `hydra-data` loses the durable archive and subsequent backfill can only recover runs still upstream; back up the branch if operationally important.
 
 ## Download and publication contract
 
-The Python standard-library builder sends **GET only** (no writes to ARSO) with `X-Gravitee-Api-Key` on every request. It reads S3 ListObjectsV2 XML from `/?list-type=2&prefix=Hidra_`, follows `NextContinuationToken` when `IsTruncated` is true, deduplicates all matching `Hidra_YYYYMMDDHH.json` object IDs, and selects the latest **30** in ascending order. Malformed, cyclic, excessively large, or incomplete listings fail closed. Fewer than 30 runs is considered incomplete.
+The standard-library builder sends **GET only** to ARSO with `X-Gravitee-Api-Key` on each request. It reads ListObjectsV2 XML from `/?list-type=2&prefix=Hidra_`, follows continuation tokens, validates and deduplicates `Hidra_YYYYMMDDHH.json` IDs, and fails on malformed/cyclic/incomplete listings. Fewer than 30 listed runs is considered incomplete.
 
-Each forecast must have a parseable `ForecastDate`, exactly 72 consecutive hourly `Dates`, and nonempty `Hidra` members containing 72 finite numeric `values` and nonnegative finite `std` values. **The filename is an archive ID, not necessarily the payload issue time**; they are deliberately not required to match. The gauge `mareografKP_vodostaj.json` must contain nonempty, strictly increasing `Dates` and equally sized finite numeric `Values`. Dates use the existing fixed CET (UTC+1) data/display convention. Metadata timestamps include an explicit offset.
+Forecasts require a parseable `ForecastDate`, exactly 72 consecutive hourly `Dates`, and nonempty ensemble members with finite numeric `values` and finite nonnegative `std`. Gauge snapshots and any present embedded Koper data require nonempty, strictly increasing timestamps and matching finite values. Existing compact archive files are revalidated, and corrupt/missing data never silently becomes a fresh archive.
 
-Requests are serialized with at least 0.7 seconds between starts (below **100 requests/minute per key**, including retries). HTTP 429 and transient server/transport failures allow at most four attempts per request. `Retry-After` seconds or HTTP dates are respected; a delay over 120 seconds aborts rather than retrying early. All redirects are rejected, including same-origin redirects, to prevent credential forwarding. HTTPS is mandatory in production; explicit loopback HTTP exists only as a Python test constructor option, never a CLI/environment bypass. Use a dedicated key: other applications sharing it can still exhaust its quota.
+Requests are serialized with at least 0.7 seconds between starts, including retries (below 100 requests/minute per key). HTTP 429 and transient server/transport failures allow four attempts maximum. `Retry-After` is respected; delays above 120 seconds abort rather than retry early. All redirects are rejected to prevent credential forwarding. Production requires HTTPS; explicit loopback HTTP is available only as a Python test constructor option. Use a dedicated key to avoid shared quota exhaustion.
 
-A temporary sibling directory receives only `index.html`, `en/index.html`, `sl/index.html`, and public assets in `shared/css`, `shared/js`, `shared/img`. Repository internals, scripts, token files and **historical checked-in `shared/data` are not copied**. Validated, schema-allowlisted data is published as:
+A temporary sibling directory receives only public HTML, CSS, JavaScript and images; repository internals, scripts, token files and checked-in legacy `shared/data` are not copied. Validated Pages data is:
 
-- `shared/data/dates.json`: `Dates` IDs, `GeneratedAt`, `LatestForecastAt`, `LatestGaugeAt`.
-- `shared/data/runs/Hidra_YYYYMMDDHH.json`: 30 forecasts.
-- `shared/data/mareografKP_vodostaj.json`: gauge data.
+- `shared/data/dates.json`: latest 30 IDs and `GeneratedAt`, `LatestForecastAt`, `LatestGaugeAt` freshness metadata.
+- `shared/data/runs/Hidra_YYYYMMDDHH.json`: latest 30 compact forecasts.
+- `shared/data/mareografKP_vodostaj.json`: retained measurements covering the recent forecast windows.
+- `shared/data/archive/`: the complete canonical archive above; historical months are fetched only when selected.
 
-Only a completely validated, credential-scanned bundle is renamed into the new `_site/` output. An existing output is never overwritten. Any failure prevents artifact upload/deployment, leaving the previous Pages deployment intact. Official `actions/upload-pages-artifact` and `actions/deploy-pages` publish the artifact; **no downloaded data is committed**. The secret is scoped to the download step, never substituted into HTML/JavaScript, manifests, logs or artifacts. The base URL is trusted operator configuration: only point it at the intended ARSO HTTPS gateway.
+Only after the full backfill/update, schema validation, capacity checks and credential scan succeed are the fresh site and dedicated archive staging outputs exposed. Existing outputs are never overwritten. Any partial download failure publishes neither output. Actions then smoke-tests recent and historical views, persists the archive using an environment-only Git authentication header (no credential in URL, argv or stored Git config), verifies its remote commit, and uploads/deploys Pages. If Pages deployment fails after a successful archive push, data remains safely retained for the next run. No API key is embedded in browser assets, archive files or logs.
 
-Browsers fetch these files from the same origin, not ARSO, so they need neither a key nor gateway CORS. Network, HTTP, JSON and plot failures show the localized error panel. A visible warning in both languages marks data stale if the bundle or gauge is older than 3 hours, or the latest forecast issue time is older than 36 hours; missing freshness metadata is stale too. The warning is reevaluated every minute on open pages. Stale but valid data remains visible. This page is not an official warning service or a sole source for safety decisions.
+Browsers fetch same-origin files, not ARSO, so they need neither credentials nor gateway CORS. Localized errors cover failed data/plot loading. Staleness warnings appear when the bundle or current gauge is older than three hours or the latest forecast issue time exceeds 36 hours; missing metadata is stale too. This warning describes the **live feed's freshness**, not the age of a deliberately selected historical run. It is reevaluated every minute. This page is not an official warning service or a sole source for safety decisions.
 
 ## Local verification
 
@@ -38,29 +59,26 @@ Python 3.8+ and Node.js 18+; no pip/npm dependencies:
 ```sh
 python -m unittest discover -s tests -v
 node tests/frontend-smoke.cjs
+node tests/archive-smoke.cjs
 ```
 
-Tests use explicitly enabled loopback mock HTTP, synthetic data, and a fake clock: pagination, latest-30 selection, auth on every request, bounded retry/rate limiting, redirect refusal, secret-safe failures, JSON validation, atomic failure and isolated output. Node executes the actual app with local Moment and a minimal DOM/Plotly harness in both languages. It is a smoke test, not full browser rendering verification.
+Tests cover paginated backfill, latest-30 output, compact statistics, incremental latest-two refresh, upstream disappearance retention, historical/current gauge merging, atomic failure, size caps, credential-safe GET transport, corrupt archives, and mocked Git bootstrap/nonforce/idempotent publication. The JavaScript tests execute the actual app in both languages using a small DOM/Plotly harness, not a full browser.
 
-For an authorized real build, provide the key through `ARSO_HYDRA_API_KEY` in your shell environment or secret manager and run:
+For an authorized initial local build, provide `ARSO_HYDRA_API_KEY` via your shell environment or secret manager (never a command-line argument), then:
 
 ```sh
-python scripts/build_site.py --output _site
-node tests/artifact-smoke.cjs _site
-python -m http.server --directory _site 8000
+python scripts/build_site.py --output _site-first --archive-output _archive-first
+node tests/artifact-smoke.cjs _site-first
+python -m http.server --directory _site-first 8000
 ```
 
-Alternatively, an ignored private `arso.token` file may hold the key locally (restrict it to mode 600). Without displaying the key or putting it in shell history:
+For an incremental build, use the prior canonical output or a `hydra-data` checkout:
 
 ```sh
-set +x
-export ARSO_HYDRA_API_KEY="$(< arso.token)"
-python scripts/build_site.py --output _site
-unset ARSO_HYDRA_API_KEY
+python scripts/build_site.py --archive-input _archive-first --archive-output _archive-next --output _site-next
+node tests/artifact-smoke.cjs _site-next
 ```
 
-The token file is never used automatically or included in the build. Choose a fresh output directory for each build; do not serve the repository root. No authenticated gateway behavior can be proven **without a valid key**; offline fixtures do not establish account entitlement, upstream availability, or permission to redistribute data.
+Choose fresh output directories each time. Keep the previous archive until the next one has been validated; local builds do not commit or publish it. The optional private `arso.token` file is ignored and never read automatically. Do not serve the repository root. The Actions-only `archive_branch.py` is not needed for local builds. Artifact smoke tests select the oldest, middle and newest archive IDs in both languages and return to the latest plot.
 
-## Data permission assumption
-
-Deploying this site makes the downloaded forecasts and measurements public in Pages and its artifact. **This implementation assumes your ARSO subscription/data terms permit redistribution. Confirm that authorization and attribution requirements with ARSO before activating publication.** Having an API key alone is not proof of redistribution rights. Retain the existing model references and ARSO attribution.
+Live API entitlement, upstream availability, browser rendering and permission to redistribute require separate verification; offline synthetic fixtures cannot prove them.

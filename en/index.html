@@ -52,13 +52,13 @@
         </div>
         <div class="col-8">
             <p>
-                This page shows a live 72h sea-level forecast of HIDRA for the Koper mareographic station (northern
+                This page shows the latest published 72h sea-level forecast of HIDRA for the Koper mareographic station (northern
                 Adriatic Sea), Slovenia.
                 72h forecast is shown in blue, measurements are in black.
                 Forecast is shown as the mean of all 50 ensemble forecasts together with the predicted standard
                 deviation of the forecasts.
                 Standard warning levels are indicated by yellow (low), orange (medium) and red (high).
-                Use the slider to inspect the prediction accuracy in older forecasts.
+                Use the slider for the latest 30 runs, or the archive date selector for older forecasts and retained measurements.
                 All times are in CET (UTC+1).
             </p>
             <p>
@@ -84,6 +84,14 @@
     </div>
 </div>
 
+<div class="container" style="padding:1rem;">
+    <label for="archive-date">Historical archive date (source file ID)</label>
+    <input type="date" id="archive-date" />
+    <label for="archive-run">Available run IDs</label>
+    <select id="archive-run"></select>
+    <button id="latest-button" type="button">Return to latest forecast</button>
+    <p id="archive-status" role="status" aria-live="polite"></p>
+</div>
 <div id="plot"></div>
 
 <div class="container">

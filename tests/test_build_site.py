@@ -106,7 +106,7 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(manifest['Dates'], self.ids[-30:])
         self.assertTrue(manifest['GeneratedAt'].endswith('+00:00'))
         self.assertEqual(len(list((self.output / 'shared/data/runs').glob('*.json'))), 30)
-        self.assertEqual(len(self.requests), 33)
+        self.assertEqual(len(self.requests), 38)
         self.assertTrue(all(key == 'TEST_PRIVATE_KEY' for _, key in self.requests))
         self.assertTrue(all(self.output.joinpath(p).is_file() for p in ['en/index.html', 'sl/index.html', 'index.html', 'shared/js/app.js', 'shared/data/mareografKP_vodostaj.json']))
         self.assertFalse((self.output / '.git').exists())
@@ -114,7 +114,7 @@ class BuilderTests(unittest.TestCase):
         for path in self.output.rglob('*'):
             if path.is_file():
                 self.assertNotIn(b'TEST_PRIVATE_KEY', path.read_bytes())
-        self.assertGreaterEqual(self.clock.now + 1e-9, 32 * 0.7)
+        self.assertGreaterEqual(self.clock.now + 1e-9, 37 * 0.7)
 
     def test_incomplete_bundle_never_published(self):
         self.mode = 'invalid'

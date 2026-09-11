@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read
 
-# Serialize all production updates sharing this key. Do not interrupt deployment.
+# Serialize production updates to protect both the API quota and archive branch.
 concurrency:
   group: hydra-pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
   cancel-in-progress: false
@@ -33,12 +33,15 @@ jobs:
           node-version: '22'
       - run: python -m unittest discover -s tests -v
       - run: node tests/frontend-smoke.cjs
+      - run: node tests/archive-smoke.cjs
 
   build:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,16 +49,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Download, validate and build public site
+      - name: Read durable archive branch (bootstrap only if absent)
+        id: archive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/archive_branch.py prepare
+      - name: Incrementally download, validate and stage all history
         env:
           ARSO_HYDRA_API_KEY: ${{ secrets.ARSO_HYDRA_API_KEY }}
           ARSO_HYDRA_BASE_URL: ${{ vars.ARSO_HYDRA_BASE_URL || 'https://apis-g.arso.gov.si/hydra/' }}
-        run: python scripts/build_site.py --output _site
+          ARCHIVE_EXISTS: ${{ steps.archive.outputs.existing }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$ARCHIVE_EXISTS" == true ]]; then
+            args+=(--archive-input _archive-state)
+          elif [[ "$ARCHIVE_EXISTS" != false ]]; then
+            exit 1
+          fi
+          python scripts/build_site.py --output _site --archive-output _archive-next "${args[@]}"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Smoke test frontend against downloaded artifact
+      - name: Smoke test recent and historical frontend against artifact
         run: node tests/artifact-smoke.cjs _site
+      - name: Persist validated archive (nonforce push and read-back)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/archive_branch.py publish
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

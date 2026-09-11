@@ -52,8 +52,8 @@
         </div>
         <div class="col-8">
             <p>
-                Stran prikazuje tekočo 72-urno napoved višine morske gladine modela HIDRA za lokacijo mareografske
-                postaje v Kopru. Z drsnikom lahko izberete in pregledujete tudi starejše napovedi.
+                Stran prikazuje najnovejšo objavljeno 72-urno napoved višine morske gladine modela HIDRA za lokacijo mareografske
+                postaje v Kopru. Drsnik prikazuje zadnjih 30 napovedi; z izbiro datuma v arhivu lahko pregledujete starejše napovedi in ohranjene meritve.
                 72-urna napoved je prikazana z modro, s črno so prikazane izmerjene višine morske gladine.
                 Napoved je prikazana kot povprečje vseh 50 ansambelskih napovedi skupaj z napovedanim standardnim
                 odklonom.
@@ -83,6 +83,14 @@
     </div>
 </div>
 
+<div class="container" style="padding:1rem;">
+    <label for="archive-date">Datum v arhivu (ID izvorne datoteke)</label>
+    <input type="date" id="archive-date" />
+    <label for="archive-run">Razpoložljivi ID-ji napovedi</label>
+    <select id="archive-run"></select>
+    <button id="latest-button" type="button">Nazaj na najnovejšo napoved</button>
+    <p id="archive-status" role="status" aria-live="polite"></p>
+</div>
 <div id="plot"></div>
 
 <div class="container">

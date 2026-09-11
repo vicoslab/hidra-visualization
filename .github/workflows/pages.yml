@@ -1,0 +1,78 @@
+name: Update Hydra and deploy Pages
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# Serialize all production updates sharing this key. Do not interrupt deployment.
+concurrency:
+  group: hydra-pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -v
+      - run: node tests/frontend-smoke.cjs
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download, validate and build public site
+        env:
+          ARSO_HYDRA_API_KEY: ${{ secrets.ARSO_HYDRA_API_KEY }}
+          ARSO_HYDRA_BASE_URL: ${{ vars.ARSO_HYDRA_BASE_URL || 'https://apis-g.arso.gov.si/hydra/' }}
+        run: python scripts/build_site.py --output _site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Smoke test frontend against downloaded artifact
+        run: node tests/artifact-smoke.cjs _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+          retention-days: 1
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy validated artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

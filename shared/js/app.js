@@ -77,6 +77,10 @@ function getStdList(data) {
     return getDataField(data, ['std', 'stds', 'Std', 'Stds']);
 }
 
+function getValueList(data) {
+    return getDataField(data, ['Values', 'values']);
+}
+
 // Fetch dates from server
 function getDates() {
     return fetchJsonWithFallback(buildApiUrls('/vg2020-dev/hidra/listHIDRAjson'))
@@ -176,8 +180,13 @@ function fetchData() {
                 return Promise.reject();
             }
 
-            let ssh = getDataField(ssh_data, ['Values', 'values']);
-            let ssh_dates = getDateList(ssh_data).map(val => parseDate(val));
+            let ssh = [];
+            let ssh_dates = [];
+
+            if (ssh_data !== null) {
+                ssh = getValueList(ssh_data);
+                ssh_dates = getDateList(ssh_data).map(val => parseDate(val));
+            }
 
             let predictions = [];
             for ({date, run: d} of runs_data) {
@@ -194,7 +203,8 @@ function fetchData() {
                     let std_i = [];
 
                     for (let j = 0; j < hidra.length; j++) {
-                        y_i.push(hidra[j].values[i]);
+                        let values = getValueList(hidra[j]);
+                        y_i.push(values[i]);
                         let std = getStdList(hidra[j]);
                         std_i.push(i < std.length ? std[i] : 0);
                     }

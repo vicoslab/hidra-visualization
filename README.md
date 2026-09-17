@@ -11,7 +11,7 @@ After reviewing and pushing this change to the default **master** branch:
 3. In **Settings → Pages → Build and deployment → Source**, select **GitHub Actions**. Ensure the `github-pages` environment permits deployment from `master`.
 4. Open **Actions → Update Hydra and deploy Pages → Run workflow**, select **master**, and run it. Check that test, build, upload and deployment succeed; use the deployment URL shown there.
 
-Pushes to `master`, manual runs on `master`, and hourly scheduling at **minute 17 UTC** update the site. Pull requests run offline tests only, without the API secret or deployment privileges. GitHub schedules can be delayed or dropped and are not a real-time guarantee; scheduled workflows in public repositories can be disabled after 60 days of inactivity. Re-enable them in Actions and run manually if necessary. Forks must configure their own authorized key and Pages settings.
+Pushes to `master`, manual runs on `master`, and daily scheduling at **08:17 UTC** update the site. Pull requests run offline tests only, without the API secret or deployment privileges. GitHub schedules can be delayed or dropped and are not a real-time guarantee; scheduled workflows in public repositories can be disabled after 60 days of inactivity. Re-enable them in Actions and run manually if necessary. Forks must configure their own authorized key and Pages settings.
 
 ## Download and publication contract
 
@@ -29,7 +29,7 @@ A temporary sibling directory receives only `index.html`, `en/index.html`, `sl/i
 
 Only a completely validated, credential-scanned bundle is renamed into the new `_site/` output. An existing output is never overwritten. Any failure prevents artifact upload/deployment, leaving the previous Pages deployment intact. Official `actions/upload-pages-artifact` and `actions/deploy-pages` publish the artifact; **no downloaded data is committed**. The secret is scoped to the download step, never substituted into HTML/JavaScript, manifests, logs or artifacts. The base URL is trusted operator configuration: only point it at the intended ARSO HTTPS gateway.
 
-Browsers fetch these files from the same origin, not ARSO, so they need neither a key nor gateway CORS. Network, HTTP, JSON and plot failures show the localized error panel. A visible warning in both languages marks data stale if the bundle or gauge is older than 3 hours, or the latest forecast issue time is older than 36 hours; missing freshness metadata is stale too. The warning is reevaluated every minute on open pages. Stale but valid data remains visible. This page is not an official warning service or a sole source for safety decisions.
+Browsers fetch these files from the same origin, not ARSO, so they need neither a key nor gateway CORS. Network, HTTP, JSON and plot failures show the localized error panel. A visible warning in both languages marks data stale if the bundle or gauge is older than 36 hours, or the latest forecast issue time is older than 36 hours; missing freshness metadata is stale too. The warning is reevaluated every minute on open pages. Stale but valid data remains visible. This page is not an official warning service or a sole source for safety decisions.
 
 ## Local verification
 

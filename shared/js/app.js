@@ -20,7 +20,7 @@ function getJSON(path) {
 
 function updateStaleWarning() {
     const data = app.manifest || {};
-    const limits = {GeneratedAt: 3, LatestForecastAt: 36, LatestGaugeAt: 3};
+    const limits = {GeneratedAt: 36, LatestForecastAt: 36, LatestGaugeAt: 36};
     const stale = Object.keys(limits).some(key => {
         const value = Date.parse(data[key]);
         return !Number.isFinite(value) || Date.now() - value > limits[key] * 3600000;

@@ -21,7 +21,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 import xml.etree.ElementTree as ET
 
-DEFAULT_BASE = 'https://apis-g.arso.gov.si/hydra/'
+DEFAULT_BASE = 'https://apis-g.arso.gov.si/s3/hydra/'
 RUN_KEY = re.compile(r'Hidra_([0-9]{10})\.json\Z')
 CET = timezone(timedelta(hours=1))  # Upstream/display contract: fixed CET, not local DST.
 MAX_BYTES = 20 * 1024 * 1024
@@ -162,7 +162,7 @@ def decode_json(body):
 
 def list_runs(client):
     identifiers, seen_tokens = set(), set()
-    query = {'list-type': '2', 'prefix': 'Hidra_'}
+    query = {'list-view': '', 'list-type': '2', 'prefix': 'Hidra_'}
     for _ in range(1000):
         body = client.get('', query)
         if b'<!DOCTYPE' in body.upper() or b'<!ENTITY' in body.upper():

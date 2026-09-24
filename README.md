@@ -6,8 +6,8 @@ English (`en/`) and Slovenian (`sl/`) static plots of ARSO HIDRA ensemble foreca
 
 After reviewing and pushing this change to the default **master** branch:
 
-1. Obtain an authorized ARSO Hydra subscription/key. In the GitHub repository, open **Settings → Secrets and variables → Actions → Secrets → New repository secret**. Set **`ARSO_HYDRA_API_KEY`** to the key.
-2. In **Settings → Secrets and variables → Actions → Variables → New repository variable**, set **`ARSO_HYDRA_BASE_URL`** to **`https://apis-g.arso.gov.si/hydra/`**. This HTTPS URL is also the safe default if the variable is unset. Never put the key in this variable or URL.
+1. Request a replacement ARSO S3/Hydra key (the emailed key was exposed in a message). In **Settings → Secrets and variables → Actions → Secrets**, update **`ARSO_HYDRA_API_KEY`** to that key. Keep it out of repository files, URLs and logs.
+2. The workflow defaults to **`https://apis-g.arso.gov.si/s3/hydra/`**. If a custom URL is needed, set the optional Actions variable **`ARSO_HYDRA_S3_BASE_URL`** to this HTTPS base path. The old `ARSO_HYDRA_BASE_URL` variable is no longer used by Actions and can be removed; the local builder still accepts the `ARSO_HYDRA_BASE_URL` environment variable.
 3. In **Settings → Pages → Build and deployment → Source**, select **GitHub Actions**. Ensure the `github-pages` environment permits deployment from `master`.
 4. Open **Actions → Update Hydra and deploy Pages → Run workflow**, select **master**, and run it. Check that test, build, upload and deployment succeed; use the deployment URL shown there.
 
@@ -15,7 +15,7 @@ Pushes to `master`, manual runs on `master`, and daily scheduling at **08:17 UTC
 
 ## Download and publication contract
 
-The Python standard-library builder sends **GET only** (no writes to ARSO) with `X-Gravitee-Api-Key` on every request. It reads S3 ListObjectsV2 XML from `/?list-type=2&prefix=Hidra_`, follows `NextContinuationToken` when `IsTruncated` is true, deduplicates all matching `Hidra_YYYYMMDDHH.json` object IDs, and selects the latest **30** in ascending order. Malformed, cyclic, excessively large, or incomplete listings fail closed. Fewer than 30 runs is considered incomplete.
+The Python standard-library builder sends **GET only** (no writes to ARSO) to the new `/s3/hydra/` bucket, with `X-Gravitee-Api-Key` on every request rather than `api-key` in the URL. It reads S3 ListObjectsV2 XML from `?list-view=&list-type=2&prefix=Hidra_`, follows `NextContinuationToken` when `IsTruncated` is true, deduplicates all matching `Hidra_YYYYMMDDHH.json` object IDs, and selects the latest **30** in ascending order. Malformed, cyclic, excessively large, or incomplete listings fail closed. Fewer than 30 runs is considered incomplete.
 
 Each forecast must have a parseable `ForecastDate`, exactly 72 consecutive hourly `Dates`, and nonempty `Hidra` members containing 72 finite numeric `values` and nonnegative finite `std` values. **The filename is an archive ID, not necessarily the payload issue time**; they are deliberately not required to match. The gauge `mareografKP_vodostaj.json` must contain nonempty, strictly increasing `Dates` and equally sized finite numeric `Values`. Dates use the existing fixed CET (UTC+1) data/display convention. Metadata timestamps include an explicit offset.
 

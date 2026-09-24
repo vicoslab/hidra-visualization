@@ -64,8 +64,10 @@ class BuilderTests(unittest.TestCase):
                     status, headers, body = 429, {'Retry-After': '3'}, b'limited'
                 elif outer.mode == 'forever-rate':
                     status, headers, body = 429, {'Retry-After': '3'}, b'limited'
-                elif parts.path == '/hydra/':
+                elif parts.path == '/s3/hydra/':
+                    assert 'list-view' in parse_qs(parts.query, keep_blank_values=True)
                     assert query['list-type'] == ['2'] and query['prefix'] == ['Hidra_']
+                    assert 'api-key' not in query
                     second = 'continuation-token' in query
                     keys = outer.ids[:20] if not second else outer.ids[20:] + outer.ids[:2]
                     truncated = not second or outer.mode == 'cycle'
@@ -90,7 +92,7 @@ class BuilderTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(body)
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        self.base = f'http://127.0.0.1:{self.server.server_port}/hydra/'
+        self.base = f'http://127.0.0.1:{self.server.server_port}/s3/hydra/'
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(self.server.server_close)
@@ -99,6 +101,20 @@ class BuilderTests(unittest.TestCase):
     def client(self):
         return build.Client(self.base, 'TEST_PRIVATE_KEY', allow_local_http=True,
                             clock=self.clock.time, sleep=self.clock.sleep)
+
+    def test_workflow_uses_new_s3_base_and_ignores_obsolete_variable(self):
+        workflow = (ROOT / '.github/workflows/pages.yml').read_text()
+        self.assertIn('https://apis-g.arso.gov.si/s3/hydra/', workflow)
+        self.assertIn('vars.ARSO_HYDRA_S3_BASE_URL', workflow)
+        self.assertNotIn('vars.ARSO_HYDRA_BASE_URL', workflow)
+        self.assertIn('secrets.ARSO_HYDRA_API_KEY', workflow)
+
+    def test_new_s3_endpoint_and_header_only_access(self):
+        self.assertEqual(build.DEFAULT_BASE, 'https://apis-g.arso.gov.si/s3/hydra/')
+        self.assertEqual(len(build.list_runs(self.client())), 30)
+        self.assertEqual(len(self.requests), 2)
+        self.assertTrue(all('api-key=' not in path and key == 'TEST_PRIVATE_KEY'
+                            for path, key in self.requests))
 
     def test_complete_paginated_bundle_and_asset_isolation(self):
         build.build_site(ROOT, self.output, self.client())
@@ -145,7 +161,7 @@ class BuilderTests(unittest.TestCase):
 
     def test_retry_after_and_bounded_retries(self):
         self.mode = 'rate'
-        self.client().get('', {'list-type': '2', 'prefix': 'Hidra_'})
+        self.client().get('', {'list-view': '', 'list-type': '2', 'prefix': 'Hidra_'})
         self.assertEqual(len(self.requests), 3)
         self.assertGreaterEqual(self.clock.now, 6)
         self.mode = 'forever-rate'

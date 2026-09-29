@@ -50,7 +50,10 @@ jobs:
         env:
           ARSO_HYDRA_API_KEY: ${{ secrets.ARSO_HYDRA_API_KEY }}
           ARSO_HYDRA_BASE_URL: ${{ vars.ARSO_HYDRA_S3_BASE_URL || 'https://apis-g.arso.gov.si/s3/hydra/' }}
-        run: python scripts/build_site.py --output _site
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          PUBLISHED_URL="$(python -c 'import os,re,sys; r=os.environ["GITHUB_REPOSITORY"]; sys.exit("Invalid repository") if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",r) else None; owner,repo=r.split("/"); print("https://"+owner.lower()+".github.io/"+repo+"/")')"
+          python scripts/build_site.py --output _site --published-url "$PUBLISHED_URL"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

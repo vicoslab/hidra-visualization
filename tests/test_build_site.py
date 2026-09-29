@@ -3,6 +3,7 @@ import copy
 from datetime import datetime, timedelta
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import threading
@@ -64,6 +65,12 @@ class BuilderTests(unittest.TestCase):
                     status, headers, body = 429, {'Retry-After': '3'}, b'limited'
                 elif outer.mode == 'forever-rate':
                     status, headers, body = 429, {'Retry-After': '3'}, b'limited'
+                elif parts.path.startswith('/published/'):
+                    file = outer.prior / parts.path[len('/published/'):] if hasattr(outer, 'prior') else None
+                    if file is None or not file.is_file():
+                        status, body = 404, b'missing'
+                    else:
+                        body = file.read_bytes()
                 elif parts.path == '/s3/hydra/':
                     assert 'list-view' in parse_qs(parts.query, keep_blank_values=True)
                     assert query['list-type'] == ['2'] and query['prefix'] == ['Hidra_']
@@ -83,6 +90,8 @@ class BuilderTests(unittest.TestCase):
                     body = json.dumps({'Dates': ['01.09.2026 00:00', '01.09.2026 00:10'], 'Values': [200, 201]}).encode()
                 else:
                     data = forecast(Path(parts.path).stem[len('Hidra_'):])
+                    if outer.mode == 'changed-newest' and Path(parts.path).stem == 'Hidra_' + outer.ids[-1]:
+                        data['Hidra'][0]['values'][0] = 333.0
                     if outer.mode == 'invalid':
                         data['Hidra'][0]['std'][0] = -1
                     body = json.dumps(data).encode()
@@ -131,6 +140,40 @@ class BuilderTests(unittest.TestCase):
             if path.is_file():
                 self.assertNotIn(b'TEST_PRIVATE_KEY', path.read_bytes())
         self.assertGreaterEqual(self.clock.now + 1e-9, 32 * 0.7)
+
+    def test_incremental_reuses_prior_and_fetches_only_mutable_runs(self):
+        build.build_site(ROOT, self.output, self.client())
+        self.assertEqual(len(self.requests), 33)  # two listing pages, 30 runs, gauge
+        self.prior = self.output
+        self.mode = 'changed-newest'
+        self.requests.clear()
+        next_output = Path(self.tmp.name) / 'next'
+        build.build_site(ROOT, next_output, self.client(),
+                         prior_url=f'{self.base.rsplit("/s3/hydra/", 1)[0]}/published/',
+                         allow_local_http=True)
+        api = [path for path, _ in self.requests if path.startswith('/s3/hydra/')]
+        self.assertEqual(len(api), 4)  # two listing pages, newest forecast, gauge
+        self.assertEqual(json.loads((next_output / 'shared/data/dates.json').read_text())['Dates'], self.ids[-30:])
+        self.assertEqual(len(list((next_output / 'shared/data/runs').glob('*.json'))), 30)
+        self.assertEqual(json.loads((next_output / f'shared/data/runs/Hidra_{self.ids[-1]}.json').read_text())['Hidra'][0]['values'][0], 333.0)
+        self.assertEqual(json.loads((self.output / f'shared/data/runs/Hidra_{self.ids[-1]}.json').read_text())['Hidra'][0]['values'][0], 200.0)
+
+    def test_missing_prior_run_fails_without_fallback_download(self):
+        build.build_site(ROOT, self.output, self.client())
+        self.prior = self.output
+        (self.prior / f'shared/data/runs/Hidra_{self.ids[-3]}.json').unlink()
+        self.requests.clear()
+        next_output = Path(self.tmp.name) / 'next'
+        with self.assertRaises(build.BuildError):
+            build.build_site(ROOT, next_output, self.client(),
+                             prior_url=f'{self.base.rsplit("/s3/hydra/", 1)[0]}/published/',
+                             allow_local_http=True)
+        self.assertFalse(next_output.exists())
+        self.assertLessEqual(len([p for p, _ in self.requests if p.startswith('/s3/hydra/')]), 2)
+
+    def test_synthetic_artifact_frontend_smoke(self):
+        build.build_site(ROOT, self.output, self.client())
+        subprocess.run(['node', 'tests/artifact-smoke.cjs', str(self.output)], cwd=ROOT, check=True)
 
     def test_incomplete_bundle_never_published(self):
         self.mode = 'invalid'

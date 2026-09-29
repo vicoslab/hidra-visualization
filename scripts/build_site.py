@@ -218,18 +218,67 @@ def copy_assets(source, stage):
         shutil.copyfile(path, target)
 
 
-def build_site(source, output, client):
+def prior_reader(url, *, allow_local_http=False):
+    parts = urlsplit(url)
+    local = allow_local_http and parts.scheme == 'http' and parts.hostname in ('localhost', '127.0.0.1', '::1')
+    if (not parts.hostname or (parts.scheme != 'https' and not local) or parts.username or parts.password
+            or parts.query or parts.fragment or '\\' in url or any(ord(c) < 33 or ord(c) > 126 for c in url)):
+        raise BuildError('Invalid published site origin.')
+    root = url.rstrip('/') + '/'
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    def read(name, *, absent_ok=False):
+        try:
+            with opener.open(Request(root + name, headers={'Accept': 'application/json'}, method='GET'), timeout=15) as response:
+                if response.status != 200:
+                    raise BuildError('Published site returned unexpected status.')
+                body = response.read(MAX_BYTES + 1)
+                if len(body) > MAX_BYTES:
+                    raise BuildError('Published site object exceeds size limit.')
+                return body
+        except HTTPError as exc:
+            status = exc.code
+            exc.close()
+            if absent_ok and status == 404:
+                return None
+            raise BuildError('Published site cache is unavailable; refusing rebuild.') from None
+        except (URLError, TimeoutError, socket.timeout, OSError):
+            raise BuildError('Published site cache is unavailable; refusing rebuild.') from None
+    return read
+
+
+def build_site(source, output, client, *, prior_url=None, allow_local_http=False):
     source, output = Path(source).resolve(), Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise BuildError('Output already exists; choose a fresh dedicated output directory.')
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.hydra-stage-', dir=output.parent))
     try:
+        read = prior_reader(prior_url, allow_local_http=allow_local_http) if prior_url else None
+        previous = None
+        cached = {}
+        if read:
+            # Only an absent landing page proves first deployment. Any partial cache fails closed.
+            if read('index.html', absent_ok=True) is not None:
+                raw = read('shared/data/dates.json')
+                try:
+                    previous = decode_json(raw)['Dates']
+                except (KeyError, TypeError):
+                    raise BuildError('Invalid published run manifest.') from None
+                if (not isinstance(previous, list) or len(previous) != 30 or previous != sorted(set(previous))
+                        or any(not isinstance(i, str) or not RUN_KEY.fullmatch(f'Hidra_{i}.json') for i in previous)):
+                    raise BuildError('Invalid published run manifest.')
+                for identifier in previous:
+                    cached[identifier] = validate_forecast(
+                        decode_json(read(f'shared/data/runs/Hidra_{identifier}.json')), identifier)
         ids = list_runs(client)
         copy_assets(source, stage)
         latest = {}
         for identifier in ids:
-            data = validate_forecast(decode_json(client.get(f'Hidra_{identifier}.json')), identifier)
+            name = f'Hidra_{identifier}.json'
+            if identifier in cached and identifier != ids[-1]:
+                data = cached[identifier]
+            else:
+                data = validate_forecast(decode_json(client.get(name)), identifier)
             write_json(stage / f'shared/data/runs/Hidra_{identifier}.json', data)
             latest = data
         gauge = validate_gauge(decode_json(client.get('mareografKP_vodostaj.json')))
@@ -254,11 +303,20 @@ def build_site(source, output, client):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', default='_site')
+    parser.add_argument('--published-url', help='Trusted HTTPS Pages root; absent site permits cold bootstrap')
+    parser.add_argument('--smoke-listing-only', action='store_true', help='Opt-in single authenticated listing request; no build')
     args = parser.parse_args()
     try:
         client = Client(os.environ.get('ARSO_HYDRA_BASE_URL') or DEFAULT_BASE,
                         os.environ.get('ARSO_HYDRA_API_KEY', ''))
-        build_site(Path(__file__).resolve().parents[1], Path(args.output), client)
+        if args.smoke_listing_only:
+            body = client.get('', {'list-view': '', 'list-type': '2', 'prefix': 'Hidra_'})
+            if b'ListBucketResult' not in body:
+                raise BuildError('Unexpected listing response.')
+            print('Authenticated listing request succeeded.')
+            return
+        build_site(Path(__file__).resolve().parents[1], Path(args.output), client,
+                   prior_url=args.published_url)
     except BuildError as exc:
         parser.exit(1, f'Build failed: {exc}\n')
     except Exception:

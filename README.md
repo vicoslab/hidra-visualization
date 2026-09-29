@@ -19,6 +19,8 @@ The Python standard-library builder sends **GET only** (no writes to ARSO) to th
 
 Each forecast must have a parseable `ForecastDate`, exactly 72 consecutive hourly `Dates`, and nonempty `Hidra` members containing 72 finite numeric `values` and nonnegative finite `std` values. **The filename is an archive ID, not necessarily the payload issue time**; they are deliberately not required to match. The gauge `mareografKP_vodostaj.json` must contain nonempty, strictly increasing `Dates` and equally sized finite numeric `Values`. Dates use the existing fixed CET (UTC+1) data/display convention. Metadata timestamps include an explicit offset.
 
+Normally the workflow reads the previous public Pages bundle from the repository-derived `https://OWNER.github.io/REPO/` root (no authentication or API key sent there). It verifies the existing 30-run manifest and each published forecast before reading the ARSO listing, then reuses immutable runs; it refreshes the newest run and gauge and downloads any newly listed runs. A first deployment with no landing page bootstraps all 30 forecasts. Missing/invalid cache objects or an inaccessible site abort rather than silently requesting another 30 forecasts. Custom Pages domains that redirect the repository-derived URL need an explicitly configured trusted origin before this workflow can build; redirects fail closed. Each build still requires a complete upstream listing, which may itself span multiple requests.
+
 Requests are serialized with at least 0.7 seconds between starts (below **100 requests/minute per key**, including retries). HTTP 429 and transient server/transport failures allow at most four attempts per request. `Retry-After` seconds or HTTP dates are respected; a delay over 120 seconds aborts rather than retrying early. All redirects are rejected, including same-origin redirects, to prevent credential forwarding. HTTPS is mandatory in production; explicit loopback HTTP exists only as a Python test constructor option, never a CLI/environment bypass. Use a dedicated key: other applications sharing it can still exhaust its quota.
 
 A temporary sibling directory receives only `index.html`, `en/index.html`, `sl/index.html`, and public assets in `shared/css`, `shared/js`, `shared/img`. Repository internals, scripts, token files and **historical checked-in `shared/data` are not copied**. Validated, schema-allowlisted data is published as:
@@ -41,6 +43,8 @@ node tests/frontend-smoke.cjs
 ```
 
 Tests use explicitly enabled loopback mock HTTP, synthetic data, and a fake clock: pagination, latest-30 selection, auth on every request, bounded retry/rate limiting, redirect refusal, secret-safe failures, JSON validation, atomic failure and isolated output. Node executes the actual app with local Moment and a minimal DOM/Plotly harness in both languages. It is a smoke test, not full browser rendering verification.
+
+For a single **opt-in** authenticated endpoint check (one listing request only, not CI), set `ARSO_HYDRA_API_KEY` explicitly and run `python scripts/build_site.py --smoke-listing-only`. This does not read `arso.token`, enumerate pages, fetch forecasts or write an artifact.
 
 For an authorized real build, provide the key through `ARSO_HYDRA_API_KEY` in your shell environment or secret manager and run:
 

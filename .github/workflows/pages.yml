@@ -49,7 +49,7 @@ jobs:
       - name: Download, validate and build public site
         env:
           ARSO_HYDRA_API_KEY: ${{ secrets.ARSO_HYDRA_API_KEY }}
-          ARSO_HYDRA_BASE_URL: ${{ vars.ARSO_HYDRA_BASE_URL || 'https://apis-g.arso.gov.si/hydra/' }}
+          ARSO_HYDRA_BASE_URL: ${{ vars.ARSO_HYDRA_S3_BASE_URL || 'https://apis-g.arso.gov.si/s3/hydra/' }}
         run: python scripts/build_site.py --output _site
       - uses: actions/setup-node@v4
         with:
